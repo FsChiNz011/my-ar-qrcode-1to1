@@ -3,178 +3,231 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-  <title>AR Architecture 1:1 (Stable Clone Lock)</title>
-  
+  <title>AR Architecture – Stable Lock</title>
+
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
-  
+
   <style>
-    body { 
-      margin: 0; 
-      overflow: hidden; 
-      background: #0a0a0f; 
-      font-family: system-ui, -apple-system, sans-serif;
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      overflow: hidden;
+      background: #0a0a0f;
+      font-family: system-ui, sans-serif;
       user-select: none;
     }
-    
-    /* กล่องควบคุมปุ่มล็อกบริเวณส่วนล่างของจอ */
+
+    /* ─── Status bar top ─── */
+    #status-bar {
+      position: fixed; top: 0; left: 0; right: 0;
+      padding: 48px 20px 16px;
+      background: linear-gradient(to bottom, rgba(10,10,15,0.75), transparent);
+      z-index: 9999;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #4a4640; flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    .dot.found   { background: #c8a96e; animation: blink 1.2s infinite; }
+    .dot.locked  { background: #4ade80; animation: none; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+    #status-text {
+      font-size: 12px; letter-spacing: 0.2em;
+      text-transform: uppercase; color: #8a8070;
+      transition: color 0.3s;
+    }
+    #status-text.found  { color: #c8a96e; }
+    #status-text.locked { color: #4ade80; }
+
+    /* ─── Bottom action button ─── */
     #action-container {
-      position: fixed; 
-      bottom: 50px; 
-      left: 50%;
+      position: fixed; bottom: 48px; left: 50%;
       transform: translateX(-50%);
-      z-index: 9999 !important;
-      width: 85%;
-      max-width: 280px;
-      pointer-events: auto;
+      z-index: 9999; width: 85%; max-width: 300px;
+      display: flex; flex-direction: column; gap: 12px;
+      align-items: center;
     }
 
-    /* ดีไซน์ปุ่มสถานะ */
     .ar-btn {
-      width: 100%;
-      padding: 16px;
-      border-radius: 8px;
-      font-size: 14px;
-      font-weight: bold;
-      letter-spacing: 0.1em;
-      text-align: center;
+      width: 100%; padding: 16px;
+      border-radius: 3px;
+      font-size: 12px; font-weight: 700;
+      letter-spacing: 0.25em; text-align: center;
       text-transform: uppercase;
-      border: 2px solid #c8a96e;
-      background: rgba(10, 10, 15, 0.9);
+      border: 1.5px solid #2a2a35;
+      background: rgba(10,10,15,0.85);
+      color: #4a4640;
+      cursor: default;
+      transition: all 0.25s ease;
+    }
+    .ar-btn.ready {
+      border-color: #c8a96e;
       color: #c8a96e;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
-      transition: all 0.2s ease;
       cursor: pointer;
+      animation: pulse-gold 1.8s infinite;
+    }
+    .ar-btn.locked {
+      border-color: #4ade80;
+      color: #4ade80;
+      background: rgba(10,10,15,0.9);
+      cursor: pointer;
+      animation: none;
+    }
+    @keyframes pulse-gold {
+      0%   { box-shadow: 0 0 0 0 rgba(200,169,110,.5); }
+      70%  { box-shadow: 0 0 0 10px rgba(200,169,110,0); }
+      100% { box-shadow: 0 0 0 0 rgba(200,169,110,0); }
     }
 
-    /* สถานะเมื่อสแกนเจอและพร้อมให้กดล็อก */
-    .ar-btn.active-ready {
-      background: #c8a96e !important;
-      color: #0a0a0f !important;
-      border-color: #c8a96e !important;
-      animation: pulse 1.5s infinite;
+    .btn-reset {
+      font-size: 10px; letter-spacing: 0.2em;
+      color: #3a3835; text-decoration: none;
+      text-transform: uppercase; cursor: pointer;
+      background: none; border: none; padding: 4px;
+      display: none;
     }
-
-    /* สถานะเมื่อล็อกพิกัดและตรึงโมเดลสำเร็จแล้ว */
-    .ar-btn.active-locked {
-      background: #12121a !important;
-      color: #4ade80 !important;
-      border-color: #4ade80 !important;
-    }
-
-    @keyframes pulse {
-      0% { box-shadow: 0 0 0 0 rgba(200, 169, 110, 0.5); }
-      70% { box-shadow: 0 0 0 10px rgba(200, 169, 110, 0); }
-      100% { box-shadow: 0 0 0 0 rgba(200, 169, 110, 0); }
-    }
+    .btn-reset.visible { display: block; color: #5a5850; }
   </style>
 </head>
 <body>
 
+  <!-- Status -->
+  <div id="status-bar">
+    <div class="dot" id="dot"></div>
+    <div id="status-text">กำลังค้นหา Marker...</div>
+  </div>
+
+  <!-- Controls -->
   <div id="action-container">
-    <button id="ar-gate-button" class="ar-btn" onclick="toggleARLock()">
-      กำลังค้นหา QR Code...
+    <button class="ar-btn" id="lock-btn" disabled onclick="handleLockBtn()">
+      ค้นหา Marker อยู่...
+    </button>
+    <button class="btn-reset" id="reset-btn" onclick="window.location.reload()">
+      รีเซ็ต / สแกนใหม่
     </button>
   </div>
 
-  <a-scene id="main-scene"
-           mindar-image="imageTargetSrc: ./targets.mind; maxTrack: 1;" 
-           color-space="sRGB" 
-           renderer="colorManagement: true, physicallyCorrectLights: true" 
-           vr-mode-ui="enabled: false" 
-           device-orientation-permission-ui="enabled: false">
-    
+  <a-scene
+    mindar-image="imageTargetSrc: ./targets.mind; maxTrack: 1;"
+    color-space="sRGB"
+    renderer="colorManagement: true; physicallyCorrectLights: true"
+    vr-mode-ui="enabled: false"
+    device-orientation-permission-ui="enabled: false">
+
     <a-assets>
       <a-asset-item id="buildingModel" src="./TEST5m.glb"></a-asset-item>
     </a-assets>
 
     <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
+    <!--
+      FIX กลับหัว:
+      - ไม่ใส่ rotation บน anchor-pivot แล้ว
+      - GLB ที่ Export จาก SketchUp มักหน้าหัว +Z แกน Y ขึ้น
+      - ถ้ายังกลับหัวอยู่ ให้ลอง rotation="0 180 0" บน building-wrapper
+    -->
     <a-entity mindar-image-target="targetIndex: 0" id="ar-target">
-      <a-entity id="anchor-pivot" position="0 0 0" rotation="-90 0 0">
-        <a-gltf-model id="original-model" src="#buildingModel" position="0 0 0" rotation="0 0 0" scale="1 1 1"></a-gltf-model>
+      <a-entity id="building-wrapper" position="0 0 0" rotation="0 0 0">
+        <a-gltf-model
+          id="original-model"
+          src="#buildingModel"
+          position="0 0 0"
+          rotation="0 0 0"
+          scale="1 1 1">
+        </a-gltf-model>
       </a-entity>
     </a-entity>
 
-    <a-entity id="world-fixed-container"></a-entity>
+    <!-- โมเดล Clone จะถูกใส่ที่นี่หลัง lock -->
+    <a-entity id="world-container"></a-entity>
 
   </a-scene>
 
   <script>
-    const mainScene = document.querySelector('#main-scene');
-    const targetEl = document.querySelector('#ar-target');
-    const anchorPivot = document.querySelector('#anchor-pivot');
+    // ─── Elements ───────────────────────────────────────────
+    const targetEl      = document.querySelector('#ar-target');
     const originalModel = document.querySelector('#original-model');
-    const fixedContainer = document.querySelector('#world-fixed-container');
-    const actionBtn = document.querySelector('#ar-gate-button');
-    
-    let isLocked = false;       // สถานะการล็อกพิกัด
-    let isTargetFound = false;  // สถานะตรวจเจอภาพ
+    const wrapper       = document.querySelector('#building-wrapper');
+    const worldContainer= document.querySelector('#world-container');
+    const lockBtn       = document.querySelector('#lock-btn');
+    const resetBtn      = document.querySelector('#reset-btn');
+    const dot           = document.querySelector('#dot');
+    const statusText    = document.querySelector('#status-text');
 
-    // 1. จังหวะที่ระบบสแกนเจอ QR Code บนกระดาษ
-    targetEl.addEventListener("targetFound", event => {
+    let isTargetFound = false;
+    let isLocked      = false;
+
+    // ─── Patch: ป้องกัน MindAR ซ่อน entity เมื่อ targetLost ───
+    // MindAR เรียก setAttribute('visible', false) บน mindar-image-target entity
+    // เราจะ override ไม่ให้มันซ่อนเมื่อล็อกแล้ว
+    const origSetAttr = targetEl.setAttribute.bind(targetEl);
+    targetEl.setAttribute = function(name, val) {
+      if (isLocked && name === 'visible' && val === false) return; // บล็อก
+      origSetAttr(name, val);
+    };
+
+    // ─── Target Found ────────────────────────────────────────
+    targetEl.addEventListener('targetFound', () => {
       isTargetFound = true;
       if (isLocked) return;
-
-      actionBtn.className = "ar-btn active-ready";
-      actionBtn.textContent = "กดเพื่อล็อกตำแหน่ง (LOCK AR)";
+      dot.className = 'dot found';
+      statusText.textContent = 'พบ Marker แล้ว — กดล็อกตำแหน่ง';
+      statusText.className = 'found';
+      lockBtn.textContent = 'ล็อกตำแหน่งโมเดล (LOCK)';
+      lockBtn.className = 'ar-btn ready';
+      lockBtn.disabled = false;
     });
-    
-    // 2. จังหวะที่กล้องเบนหนีหลุดจากกระดาษ
-    targetEl.addEventListener("targetLost", event => {
+
+    // ─── Target Lost ─────────────────────────────────────────
+    targetEl.addEventListener('targetLost', () => {
       isTargetFound = false;
-      if (isLocked) return; // หากล็อกแล้ว ปล่อยให้โมเดลโคลนทำงานต่อไป
-      
-      actionBtn.className = "ar-btn";
-      actionBtn.textContent = "กำลังค้นหา QR Code...";
+      if (isLocked) return; // ล็อกแล้ว → ไม่ต้องทำอะไร
+      dot.className = 'dot';
+      statusText.textContent = 'กำลังค้นหา Marker...';
+      statusText.className = '';
+      lockBtn.textContent = 'ค้นหา Marker อยู่...';
+      lockBtn.className = 'ar-btn';
+      lockBtn.disabled = true;
     });
 
-    // 3. ฟังก์ชันระบบปุ่มล็อกพิกัดแบบโคลนวัตถุตัดขาดจากสัญญาณกล้อง
-    function toggleARLock() {
-      if (!isLocked) {
-        // ต้องส่องเจอภาพก่อนถึงจะกดล็อกได้
-        if (!isTargetFound) return;
+    // ─── Lock ─────────────────────────────────────────────────
+    function handleLockBtn() {
+      if (isLocked) return;
+      if (!isTargetFound) return;
 
-        // คำนวณหาค่าพิกัดและองศาจริงในระนาบโลก (Absolute World Position/Rotation) ของโมเดล ณ วินาทีนั้น
-        const worldPos = new AFRAME.THREE.Vector3();
-        const worldRot = new AFRAME.THREE.Quaternion();
-        const worldScale = new AFRAME.THREE.Vector3();
-        
-        originalModel.object3D.updateMatrixWorld();
-        originalModel.object3D.matrixWorld.decompose(worldPos, worldRot, worldScale);
+      // อ่าน world matrix ของ wrapper (ครอบ rotation fix ทั้งหมด)
+      wrapper.object3D.updateMatrixWorld(true);
+      const worldPos   = new THREE.Vector3();
+      const worldQuat  = new THREE.Quaternion();
+      const worldScale = new THREE.Vector3();
+      wrapper.object3D.matrixWorld.decompose(worldPos, worldQuat, worldScale);
 
-        // สั่งซ่อนโมเดลตัวจริงที่ผูกกับเทมเพลตของ MindAR ออกไปก่อน
-        originalModel.setAttribute('visible', false);
+      // สร้าง anchor entity ใน world-container แล้วใส่ position/quaternion ทันที
+      // ไม่สร้าง a-gltf-model ใหม่ — ย้าย wrapper ออกมาแทน (ไม่มีช่วงว่าง)
+      const anchor = document.createElement('a-entity');
+      anchor.id = 'locked-anchor';
+      worldContainer.appendChild(anchor);
 
-        // สร้างโมเดลจำลองตัวใหม่ขึ้นมา (Clone) เพื่อบรรจุเข้าสู่ระบบฉากหลักโดยตรง
-        const clonedModel = document.createElement('a-gltf-model');
-        clonedModel.setAttribute('src', '#buildingModel');
-        clonedModel.setAttribute('scale', '1 1 1');
-        clonedModel.id = "permanently-locked-model";
+      // ย้าย wrapper จาก ar-target → locked-anchor
+      anchor.appendChild(wrapper);
 
-        // ส่งโมเดลตัวใหม่เข้าไปในตู้คอนเทนเนอร์ภายนอก
-        fixedContainer.appendChild(clonedModel);
+      // ตรึงพิกัดและ rotation ใน world space
+      anchor.object3D.position.copy(worldPos);
+      anchor.object3D.quaternion.copy(worldQuat);
+      // Scale ปกติจาก wrapper เดิม (ไม่ต้อง set ซ้ำ เพราะ wrapper ยังอยู่)
 
-        // บังคับตรึงพิกัด สเกล และองศาให้ตรงตามเป้าหมายเป๊ะๆ ไม่ให้กลับหัวและไม่เคลื่อนที่
-        clonedModel.addEventListener('model-loaded', () => {
-          clonedModel.object3D.position.copy(worldPos);
-          clonedModel.object3D.quaternion.copy(worldRot);
-          clonedModel.object3D.visible = true;
-        });
-        
-        // บังคับประคองตำแหน่งในระดับ Object3D ทันที
-        clonedModel.object3D.position.copy(worldPos);
-        clonedModel.object3D.quaternion.copy(worldRot);
+      isLocked = true;
 
-        isLocked = true;
-        
-        // อัปเดตสถานะปุ่มสีเขียว ล็อกเสร็จสมบูรณ์
-        actionBtn.className = "ar-btn active-locked";
-        actionBtn.textContent = "ล็อกสำเร็จ! เดินสำรวจได้เลย";
-      } else {
-        // หากต้องการยกเลิกหรือตั้งหลักสแกนใหม่ ให้สั่งรีโหลดหน้าเว็บเพื่อเคลียร์ค่าหน่วยความจำ
-        window.location.reload();
-      }
+      // อัปเดต UI
+      dot.className = 'dot locked';
+      statusText.textContent = 'ล็อกแล้ว — เดินสำรวจได้เลย';
+      statusText.className = 'locked';
+      lockBtn.textContent = '✓ ล็อกสำเร็จ';
+      lockBtn.className = 'ar-btn locked';
+      lockBtn.disabled = true;
+      resetBtn.className = 'btn-reset visible';
     }
   </script>
 </body>
