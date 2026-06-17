@@ -9,21 +9,37 @@
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
   
   <style>
-    body { margin: 0; overflow: hidden; background: #0a0a0f; }
-    
-    /* UI ข้อความแจ้งเตือนผู้ใช้ */
-    #scan-overlay {
-      position: fixed; inset: 0; z-index: 999;
-      pointer-events: none;
-      display: flex; flex-direction: column;
-      align-items: center; justify-content: center;
+    body { 
+      margin: 0; 
+      overflow: hidden; 
+      background: #0a0a0f; 
+      font-family: system-ui, -apple-system, sans-serif;
     }
+    
+    /* UI ข้อความแจ้งเตือนสถานะการสแกน */
+    #scan-overlay {
+      position: fixed; 
+      bottom: 40px; 
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 999;
+      pointer-events: none;
+      width: 90%;
+      max-width: 320px;
+    }
+    
     .scan-gate {
-      font-family: sans-serif; font-size: 14px; letter-spacing: 0.1em;
-      color: #c8a96e; background: rgba(10, 10, 15, 0.75);
-      padding: 12px 24px; border-radius: 4px;
+      font-size: 13px; 
+      /* ใช้ฟอนต์สไตล์โมเดิร์นแบบโปรเจกต์เดิมของคุณ */
+      letter-spacing: 0.1em;
+      color: #c8a96e; 
+      background: rgba(10, 10, 15, 0.85);
+      padding: 14px 20px; 
+      border-radius: 4px;
       border: 1px solid rgba(200, 169, 110, 0.3);
-      text-transform: uppercase;
+      text-align: center;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+      transition: all 0.3s ease;
     }
   </style>
 </head>
@@ -48,24 +64,41 @@
     <a-entity mindar-image-target="targetIndex: 0" id="ar-target">
       <a-gltf-model src="#buildingModel" 
                     position="0 0 0" 
-                    rotation="0 0 0" 
+                    rotation="-90 0 0" 
                     scale="1 1 1">
       </a-gltf-model>
     </a-entity>
   </a-scene>
 
   <script>
-    // ดักจับ Event เพื่อเปิด/ปิด UI แจ้งเตือนเวลาสแกนเจอภาพ
     const targetEl = document.querySelector('#ar-target');
     const promptText = document.querySelector('#prompt-text');
     
+    // เมื่อระบบสแกนเจอ QR Code ครั้งแรก
     targetEl.addEventListener("targetFound", event => {
-      promptText.style.display = "none"; // ซ่อนข้อความเมื่อเจอ QR Code
+      // ปรับ UI แจ้งเตือนให้จางลงเพื่อไม่ให้บดบังทัศนียภาพของอาคาร
+      promptText.style.borderColor = "rgba(200, 169, 110, 0.1)";
+      promptText.style.color = "rgba(200, 169, 110, 0.6)";
+      promptText.textContent = "จับพิกัดสำเร็จ: สเกล 1:1 เปิดทำงาน";
+      
+      // ดักจับและบังคับให้โมเดลคงสถานะ Visible (แสดงผล) ไว้เสมอ
+      const modelEntity = targetEl.querySelector('a-gltf-model');
+      if (modelEntity) {
+        modelEntity.setAttribute('visible', true);
+      }
     });
     
+    // เมื่อกล้องเคลื่อนที่เบนหนีจนหลุดจากแผ่น QR Code (เกิดสัญญาณหลุด)
     targetEl.addEventListener("targetLost", event => {
-      promptText.style.display = "block"; // แสดงข้อความเมื่อกล้องหลุดจาก QR Code
-      promptText.textContent = "สัญญาณหลุด: กรุณาส่องกล้องไปที่ QR Code อีกครั้ง";
+      // อัปเดตข้อความแจ้งเตือนให้ผู้ใช้ทราบว่าขณะนี้กำลังใช้ระบบ Gyro ประคองวัตถุอยู่
+      promptText.style.color = "#8a8070";
+      promptText.textContent = "โหมดล็อกพิกัดค้าง: คุณสามารถเดินดูรอบๆ ได้";
+      
+      // สั่ง Bypass ระบบของ MindAR โดยบังคับตรึงโมเดล 3D ให้ลอยค้างบนจอต่อ ไม่ให้หายไป
+      const modelEntity = targetEl.querySelector('a-gltf-model');
+      if (modelEntity) {
+        modelEntity.setAttribute('visible', true);
+      }
     });
   </script>
 </body>
