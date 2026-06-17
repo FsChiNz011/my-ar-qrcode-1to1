@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-  <title>AR Architecture 1:1</title>
+  <title>AR Architecture 1:1 (Absolute Free-Lock)</title>
   
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
@@ -17,19 +17,19 @@
       user-select: none;
     }
     
-    /* กล่องควบคุมปุ่มล็อกแบบเด่นชัดกลางจอส่วนล่าง */
+    /* กล่องควบคุมปุ่มล็อกบริเวณส่วนล่างของจอ */
     #action-container {
       position: fixed; 
       bottom: 50px; 
       left: 50%;
       transform: translateX(-50%);
-      z-index: 9999 !important; /* ดันขึ้นมาให้อยู่ชั้นบนสุดไม่โดนกล้องบัง */
+      z-index: 9999 !important;
       width: 85%;
       max-width: 280px;
       pointer-events: auto;
     }
 
-    /* ดีไซน์ปุ่มสถานะสีทองเด่นชัด */
+    /* ดีไซน์ปุ่มสถานะสีทอง */
     .ar-btn {
       width: 100%;
       padding: 16px;
@@ -55,10 +55,10 @@
       animation: pulse 1.5s infinite;
     }
 
-    /* สถานะเมื่อล็อกพิกัดเรียบร้อยแล้ว */
+    /* สถานะเมื่อล็อกพิกัดและย้ายฐานโมเดลสำเร็จแล้ว */
     .ar-btn.active-locked {
       background: #12121a !important;
-      color: #4ade80 !important; /* เปลี่ยนเป็นสีเขียวแจ้งสถานะล็อกสมบูรณ์ */
+      color: #4ade80 !important;
       border-color: #4ade80 !important;
     }
 
@@ -77,7 +77,8 @@
     </button>
   </div>
 
-  <a-scene mindar-image="imageTargetSrc: ./targets.mind; maxTrack: 1;" 
+  <a-scene id="main-scene"
+           mindar-image="imageTargetSrc: ./targets.mind; maxTrack: 1;" 
            color-space="sRGB" 
            renderer="colorManagement: true, physicallyCorrectLights: true" 
            vr-mode-ui="enabled: false" 
@@ -90,75 +91,74 @@
     <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
     <a-entity mindar-image-target="targetIndex: 0" id="ar-target">
-      <a-gltf-model src="#buildingModel" 
-                    position="0 0 0" 
-                    rotation="-90 0 0" 
-                    scale="1 1 1">
-      </a-gltf-model>
+      
+      <a-entity id="model-wrapper" position="0 0 0" rotation="-90 0 0">
+        <a-gltf-model id="actual-model" src="#buildingModel" position="0 0 0" rotation="0 0 0" scale="1 1 1"></a-gltf-model>
+      </a-entity>
+
     </a-entity>
   </a-scene>
 
   <script>
+    const mainScene = document.querySelector('#main-scene');
     const targetEl = document.querySelector('#ar-target');
-    const modelEntity = targetEl.querySelector('a-gltf-model');
+    const modelWrapper = document.querySelector('#model-wrapper');
     const actionBtn = document.querySelector('#ar-gate-button');
     
-    let isLocked = false;       // สถานะตรึงตำแหน่ง
-    let isTargetFound = false;  // สถานะส่องเจอภาพหน้างาน
+    let isLocked = false;       // เช็คสถานะการล็อกค้าง
+    let isTargetFound = false;  // เช็คว่ากล้องกำลังเห็นกระดาษอยู่ไหม
 
-    // 1. ตรวจจับเมื่อสแกนเจอภาพเป้าหมาย (QR Code)
+    // 1. เมื่อสแกนเจอ QR Code บนกระดาษครั้งแรก
     targetEl.addEventListener("targetFound", event => {
       isTargetFound = true;
       if (isLocked) return;
 
-      // ปรับปรุงปุ่มเปลี่ยนเป็นสีทองเพื่อให้กดล็อกพิกัด
       actionBtn.className = "ar-btn active-ready";
       actionBtn.textContent = "กดเพื่อล็อกตำแหน่ง (LOCK AR)";
     });
     
-    // 2. ตรวจจับเมื่อกล้องเบนหนีจนหลุดจากเป้าหมาย
+    // 2. เมื่อกล้องขยับหนีจนหลุดจากกระดาษ
     targetEl.addEventListener("targetLost", event => {
       isTargetFound = false;
       
-      // ถ้ากดล็อกไว้แล้ว แม้สัญญาณหลุดก็บังคับเปิดโมเดลค้างไว้ตลอดไป
-      if (isLocked) {
-        if (modelEntity) modelEntity.setAttribute('visible', true);
-        return;
-      }
+      // ถ้ากดล็อกไปแล้ว แม้ระบบ MindAR จะสั่งปิดหน้าต่างหลัก แต่โมเดลเราย้ายบ้านไปแล้ว จึงจะไม่หายครับ
+      if (isLocked) return;
       
-      // ถ้ายังไม่ได้ล็อกแล้วหลุด ให้รีเซ็ตกลับสถานะค้นหา
       actionBtn.className = "ar-btn";
       actionBtn.textContent = "กำลังค้นหา QR Code...";
     });
 
-    // 3. ฟังก์ชันหลักสำหรับกดล็อกและปลดล็อกตำแหน่งด้วยปุ่มเดียว
+    // 3. ฟังก์ชันการย้ายค่ายและล็อกพิกัดวัตถุแบบถาวร
     function toggleARLock() {
       if (!isLocked) {
-        // เงื่อนไข: จะยอมให้กดล็อกได้ก็ต่อเมื่อกล้องกำลังส่องเจอภาพเท่านั้น
+        // ต้องส่องกล้องให้เจอภาพก่อนถึงจะกดล็อกได้
         if (!isTargetFound) return;
 
+        // ดึงค่าพิกัดตำแหน่ง (World Position/Rotation) ล่าสุด ณ วินาทีที่กดล็อก
+        const currentPosition = new AFRAME.THREE.Vector3();
+        const currentRotation = new AFRAME.THREE.Quaternion();
+        const currentScale = new AFRAME.THREE.Vector3();
+        
+        modelWrapper.object3D.updateMatrixWorld();
+        modelWrapper.object3D.matrixWorld.decompose(currentPosition, currentRotation, currentScale);
+
+        // [จุดสำคัญ] ย้ายโครงสร้างโมเดลออกจากกลุ่มของ Marker ไปเป็นลูกตรงของฉากหลัก (a-scene)
+        mainScene.appendChild(modelWrapper);
+
+        // บังคับตรึงพิกัดแบบ Absolute ในโลก AR ให้อยู่จุดเดิมตอนที่กดเป๊ะๆ
+        modelWrapper.object3D.position.copy(currentPosition);
+        modelWrapper.object3D.quaternion.copy(currentRotation);
+        
         isLocked = true;
-        if (modelEntity) modelEntity.setAttribute('visible', true);
         
-        // เปลี่ยนหน้าตาปุ่มเป็นโหมดล็อกพิกัดสีเขียว
+        // อัปเดต UI ปุ่มเป็นสีเขียวแจ้งเตือนล็อกสมบูรณ์
         actionBtn.className = "ar-btn active-locked";
-        actionBtn.textContent = "ล็อกแล้ว (กดเพื่อปลดล็อก)";
+        actionBtn.textContent = "ล็อกสำเร็จ! เดินสำรวจได้เลย";
       } else {
-        // หากกดซ้ำตอนล็อกอยู่ จะทำการคลายล็อกเพื่อตั้งหลักสแกนใหม่
-        isLocked = false;
-        if (modelEntity) modelEntity.setAttribute('visible', false); // เคลียร์โมเดลชั่วคราว
-        
-        actionBtn.className = "ar-btn";
-        actionBtn.textContent = "กำลังค้นหา QR Code...";
+        // ถ้าระบบล็อกอยู่แล้วผู้ใช้กดซ้ำ จะทำการรีโหลดหน้าเว็บเพื่อเริ่มต้นสแกนพิกัดใหม่สะดวกที่สุด
+        window.location.reload();
       }
     }
-
-    // ฟังก์ชันเสริมบังคับเรนเดอร์ในกรณีวน Loop เหตุการณ์หลุด
-    setInterval(() => {
-      if (isLocked && modelEntity) {
-        modelEntity.setAttribute('visible', true);
-      }
-    }, 200);
   </script>
 </body>
 </html>
