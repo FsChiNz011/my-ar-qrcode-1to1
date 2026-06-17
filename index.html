@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-  <title>AR Architecture 1:1 (QR Code Anchor)</title>
+  <title>AR Architecture 1:1 (Manual Lock Anchor)</title>
   
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
@@ -14,39 +14,79 @@
       overflow: hidden; 
       background: #0a0a0f; 
       font-family: system-ui, -apple-system, sans-serif;
+      user-select: none;
     }
     
-    /* UI ข้อความแจ้งเตือนสถานะการสแกน */
-    #scan-overlay {
+    /* UI ด้านล่างสำหรับควบคุมปุ่ม */
+    #control-panel {
       position: fixed; 
       bottom: 40px; 
       left: 50%;
       transform: translateX(-50%);
       z-index: 999;
-      pointer-events: none;
       width: 90%;
       max-width: 320px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      pointer-events: none;
     }
     
-    .scan-gate {
-      font-size: 13px; 
-      /* ใช้ฟอนต์สไตล์โมเดิร์นแบบโปรเจกต์เดิมของคุณ */
+    /* กล่องข้อความแจ้งสถานะ */
+    .status-badge {
+      font-size: 12px; 
       letter-spacing: 0.1em;
-      color: #c8a96e; 
+      color: #8a8070; 
       background: rgba(10, 10, 15, 0.85);
-      padding: 14px 20px; 
+      padding: 12px; 
       border-radius: 4px;
-      border: 1px solid rgba(200, 169, 110, 0.3);
+      border: 1px solid rgba(200, 169, 110, 0.2);
       text-align: center;
       box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-      transition: all 0.3s ease;
+    }
+
+    /* ปุ่มกดสไตล์พรีเมียมแบบโปรเจกต์เดิม */
+    .btn-action {
+      background: #3a3830;
+      color: #6a6460;
+      border: 1px solid rgba(200, 169, 110, 0.2);
+      border-radius: 4px;
+      padding: 16px;
+      font-size: 13px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      width: 100%;
+      pointer-events: auto;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    }
+    
+    /* สไตล์เมื่อปุ่มพร้อมให้กดล็อก */
+    .btn-action.ready {
+      background: #c8a96e;
+      color: #0a0a0f;
+      border: none;
+    }
+    .btn-action.ready:active {
+      transform: scale(0.98);
+      background: #b8995e;
+    }
+
+    /* สไตล์เมื่อล็อกสำเร็จแล้ว */
+    .btn-action.locked {
+      background: #1e1e28;
+      color: #c8a96e;
+      border: 1px solid #c8a96e;
     }
   </style>
 </head>
 <body>
 
-  <div id="scan-overlay">
-    <div class="scan-gate" id="prompt-text">กรุณาส่องกล้องไปที่ QR Code อ้างอิง</div>
+  <div id="control-panel">
+    <div class="status-badge" id="status-text">กำลังค้นหา QR Code อ้างอิง...</div>
+    <button class="btn-action" id="btn-lock" disabled>ล็อกพิกัดโมเดล (Lock AR)</button>
   </div>
 
   <a-scene mindar-image="imageTargetSrc: ./targets.mind; maxTrack: 1;" 
@@ -72,32 +112,69 @@
 
   <script>
     const targetEl = document.querySelector('#ar-target');
-    const promptText = document.querySelector('#prompt-text');
+    const modelEntity = targetEl.querySelector('a-gltf-model');
+    const statusText = document.querySelector('#status-text');
+    const btnLock = document.querySelector('#btn-lock');
     
-    // เมื่อระบบสแกนเจอ QR Code ครั้งแรก
+    let isLocked = false; // ตัวแปรเก็บสถานะการล็อกพิกัด
+
+    // 1. เมื่อระบบตรวจเจอ QR Code บนกระดาษ
     targetEl.addEventListener("targetFound", event => {
-      // ปรับ UI แจ้งเตือนให้จางลงเพื่อไม่ให้บดบังทัศนียภาพของอาคาร
-      promptText.style.borderColor = "rgba(200, 169, 110, 0.1)";
-      promptText.style.color = "rgba(200, 169, 110, 0.6)";
-      promptText.textContent = "จับพิกัดสำเร็จ: สเกล 1:1 เปิดทำงาน";
+      if (isLocked) return; // ถ้าล็อกไปแล้วไม่ต้องทำอะไรเพิ่ม
       
-      // ดักจับและบังคับให้โมเดลคงสถานะ Visible (แสดงผล) ไว้เสมอ
-      const modelEntity = targetEl.querySelector('a-gltf-model');
-      if (modelEntity) {
-        modelEntity.setAttribute('visible', true);
-      }
+      statusText.style.color = "#c8a96e";
+      statusText.textContent = "เจอเป้าหมาย! กรุณากดปุ่มเพื่อทำการล็อกตำแหน่ง";
+      
+      // เปิดสิทธิ์ให้กดปุ่มล็อกได้ และเปลี่ยนสีปุ่มให้สว่างขึ้น
+      btnLock.disabled = false;
+      btnLock.classList.add('ready');
     });
     
-    // เมื่อกล้องเคลื่อนที่เบนหนีจนหลุดจากแผ่น QR Code (เกิดสัญญาณหลุด)
+    // 2. เมื่อกล้องขยับหลุดจากแผ่น QR Code
     targetEl.addEventListener("targetLost", event => {
-      // อัปเดตข้อความแจ้งเตือนให้ผู้ใช้ทราบว่าขณะนี้กำลังใช้ระบบ Gyro ประคองวัตถุอยู่
-      promptText.style.color = "#8a8070";
-      promptText.textContent = "โหมดล็อกพิกัดค้าง: คุณสามารถเดินดูรอบๆ ได้";
-      
-      // สั่ง Bypass ระบบของ MindAR โดยบังคับตรึงโมเดล 3D ให้ลอยค้างบนจอต่อ ไม่ให้หายไป
-      const modelEntity = targetEl.querySelector('a-gltf-model');
-      if (modelEntity) {
+      if (isLocked) {
+        // หากสั่งล็อกไว้แล้ว แม้กล้องหลุดแต่โมเดลจะโดนบังคับให้แสดงผลต่อตลอดไป
         modelEntity.setAttribute('visible', true);
+        return;
+      }
+      
+      // หากยังไม่ได้กดล็อก แล้วกล้องหลุด ให้รีเซ็ตปุ่มกลับไปสถานะเดิม
+      statusText.style.color = "#8a8070";
+      statusText.textContent = "สัญญาณหลุด: กรุณาส่อง QR Code อีกครั้ง";
+      btnLock.disabled = true;
+      btnLock.classList.remove('ready');
+    });
+
+    // 3. ฟังก์ชันการทำงานเมื่อผู้ใช้งานกดปุ่มล็อกพิกัด
+    btnLock.addEventListener('click', () => {
+      if (!modelEntity || isLocked) return;
+      
+      isLocked = true; // ตั้งค่าสถานะเป็นล็อกเรียบร้อย
+      
+      // บังคับให้โมเดล 3D เปิดสถานะ Visible ค้างไว้ถาวรไม่ว่า MindAR จะสั่งอะไร
+      modelEntity.setAttribute('visible', true);
+      
+      // เปลี่ยนแปลงหน้าตาของ UI เพื่อแจ้งผู้ใช้ว่าล็อกสำเร็จ
+      statusText.style.color = "#e8e4dc";
+      statusText.textContent = "โหมด 1:1 ตรึงตำแหน่งแล้ว เดินดูรอบๆ ได้ทันที";
+      
+      btnLock.textContent = "ปลดล็อกพิกัด (Unlock)";
+      btnLock.classList.remove('ready');
+      btnLock.classList.add('locked');
+    });
+    
+    // 4. ระบบกดซ้ำเพื่อปลดล็อก (เผื่อกรณีต้องการย้ายตำแหน่งจุดเริ่มสแกนใหม่)
+    btnLock.addEventListener('click', () => {
+      if (!isLocked) return; // ถ้าไม่ได้ล็อกอยู่ให้ข้ามไป (ปล่อยให้ฟังก์ชันข้อ 3 ทำงานก่อน)
+      
+      // บล็อกปุ่มไว้สั้นๆ ป้องกันปัญหาเบิ้ลคลิก
+      if (btnLock.textContent === "ปลดล็อกพิกัด (Unlock)") {
+        isLocked = false;
+        btnLock.disabled = true;
+        btnLock.textContent = "ล็อกพิกัดโมเดล (Lock AR)";
+        btnLock.classList.remove('locked');
+        statusText.style.color = "#8a8070";
+        statusText.textContent = "ปลดล็อกแล้ว กำลังค้นหา QR Code ใหม่...";
       }
     });
   </script>
