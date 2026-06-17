@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-  <title>AR Architecture 1:1 (Absolute Free-Lock)</title>
+  <title>AR Architecture 1:1 (Stable Clone Lock)</title>
   
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
@@ -29,7 +29,7 @@
       pointer-events: auto;
     }
 
-    /* ดีไซน์ปุ่มสถานะสีทอง */
+    /* ดีไซน์ปุ่มสถานะ */
     .ar-btn {
       width: 100%;
       padding: 16px;
@@ -55,7 +55,7 @@
       animation: pulse 1.5s infinite;
     }
 
-    /* สถานะเมื่อล็อกพิกัดและย้ายฐานโมเดลสำเร็จแล้ว */
+    /* สถานะเมื่อล็อกพิกัดและตรึงโมเดลสำเร็จแล้ว */
     .ar-btn.active-locked {
       background: #12121a !important;
       color: #4ade80 !important;
@@ -91,24 +91,27 @@
     <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
     <a-entity mindar-image-target="targetIndex: 0" id="ar-target">
-      
-      <a-entity id="model-wrapper" position="0 0 0" rotation="-90 0 0">
-        <a-gltf-model id="actual-model" src="#buildingModel" position="0 0 0" rotation="0 0 0" scale="1 1 1"></a-gltf-model>
+      <a-entity id="anchor-pivot" position="0 0 0" rotation="-90 0 0">
+        <a-gltf-model id="original-model" src="#buildingModel" position="0 0 0" rotation="0 0 0" scale="1 1 1"></a-gltf-model>
       </a-entity>
-
     </a-entity>
+
+    <a-entity id="world-fixed-container"></a-entity>
+
   </a-scene>
 
   <script>
     const mainScene = document.querySelector('#main-scene');
     const targetEl = document.querySelector('#ar-target');
-    const modelWrapper = document.querySelector('#model-wrapper');
+    const anchorPivot = document.querySelector('#anchor-pivot');
+    const originalModel = document.querySelector('#original-model');
+    const fixedContainer = document.querySelector('#world-fixed-container');
     const actionBtn = document.querySelector('#ar-gate-button');
     
-    let isLocked = false;       // เช็คสถานะการล็อกค้าง
-    let isTargetFound = false;  // เช็คว่ากล้องกำลังเห็นกระดาษอยู่ไหม
+    let isLocked = false;       // สถานะการล็อกพิกัด
+    let isTargetFound = false;  // สถานะตรวจเจอภาพ
 
-    // 1. เมื่อสแกนเจอ QR Code บนกระดาษครั้งแรก
+    // 1. จังหวะที่ระบบสแกนเจอ QR Code บนกระดาษ
     targetEl.addEventListener("targetFound", event => {
       isTargetFound = true;
       if (isLocked) return;
@@ -117,45 +120,59 @@
       actionBtn.textContent = "กดเพื่อล็อกตำแหน่ง (LOCK AR)";
     });
     
-    // 2. เมื่อกล้องขยับหนีจนหลุดจากกระดาษ
+    // 2. จังหวะที่กล้องเบนหนีหลุดจากกระดาษ
     targetEl.addEventListener("targetLost", event => {
       isTargetFound = false;
-      
-      // ถ้ากดล็อกไปแล้ว แม้ระบบ MindAR จะสั่งปิดหน้าต่างหลัก แต่โมเดลเราย้ายบ้านไปแล้ว จึงจะไม่หายครับ
-      if (isLocked) return;
+      if (isLocked) return; // หากล็อกแล้ว ปล่อยให้โมเดลโคลนทำงานต่อไป
       
       actionBtn.className = "ar-btn";
       actionBtn.textContent = "กำลังค้นหา QR Code...";
     });
 
-    // 3. ฟังก์ชันการย้ายค่ายและล็อกพิกัดวัตถุแบบถาวร
+    // 3. ฟังก์ชันระบบปุ่มล็อกพิกัดแบบโคลนวัตถุตัดขาดจากสัญญาณกล้อง
     function toggleARLock() {
       if (!isLocked) {
-        // ต้องส่องกล้องให้เจอภาพก่อนถึงจะกดล็อกได้
+        // ต้องส่องเจอภาพก่อนถึงจะกดล็อกได้
         if (!isTargetFound) return;
 
-        // ดึงค่าพิกัดตำแหน่ง (World Position/Rotation) ล่าสุด ณ วินาทีที่กดล็อก
-        const currentPosition = new AFRAME.THREE.Vector3();
-        const currentRotation = new AFRAME.THREE.Quaternion();
-        const currentScale = new AFRAME.THREE.Vector3();
+        // คำนวณหาค่าพิกัดและองศาจริงในระนาบโลก (Absolute World Position/Rotation) ของโมเดล ณ วินาทีนั้น
+        const worldPos = new AFRAME.THREE.Vector3();
+        const worldRot = new AFRAME.THREE.Quaternion();
+        const worldScale = new AFRAME.THREE.Vector3();
         
-        modelWrapper.object3D.updateMatrixWorld();
-        modelWrapper.object3D.matrixWorld.decompose(currentPosition, currentRotation, currentScale);
+        originalModel.object3D.updateMatrixWorld();
+        originalModel.object3D.matrixWorld.decompose(worldPos, worldRot, worldScale);
 
-        // [จุดสำคัญ] ย้ายโครงสร้างโมเดลออกจากกลุ่มของ Marker ไปเป็นลูกตรงของฉากหลัก (a-scene)
-        mainScene.appendChild(modelWrapper);
+        // สั่งซ่อนโมเดลตัวจริงที่ผูกกับเทมเพลตของ MindAR ออกไปก่อน
+        originalModel.setAttribute('visible', false);
 
-        // บังคับตรึงพิกัดแบบ Absolute ในโลก AR ให้อยู่จุดเดิมตอนที่กดเป๊ะๆ
-        modelWrapper.object3D.position.copy(currentPosition);
-        modelWrapper.object3D.quaternion.copy(currentRotation);
+        // สร้างโมเดลจำลองตัวใหม่ขึ้นมา (Clone) เพื่อบรรจุเข้าสู่ระบบฉากหลักโดยตรง
+        const clonedModel = document.createElement('a-gltf-model');
+        clonedModel.setAttribute('src', '#buildingModel');
+        clonedModel.setAttribute('scale', '1 1 1');
+        clonedModel.id = "permanently-locked-model";
+
+        // ส่งโมเดลตัวใหม่เข้าไปในตู้คอนเทนเนอร์ภายนอก
+        fixedContainer.appendChild(clonedModel);
+
+        // บังคับตรึงพิกัด สเกล และองศาให้ตรงตามเป้าหมายเป๊ะๆ ไม่ให้กลับหัวและไม่เคลื่อนที่
+        clonedModel.addEventListener('model-loaded', () => {
+          clonedModel.object3D.position.copy(worldPos);
+          clonedModel.object3D.quaternion.copy(worldRot);
+          clonedModel.object3D.visible = true;
+        });
         
+        // บังคับประคองตำแหน่งในระดับ Object3D ทันที
+        clonedModel.object3D.position.copy(worldPos);
+        clonedModel.object3D.quaternion.copy(worldRot);
+
         isLocked = true;
         
-        // อัปเดต UI ปุ่มเป็นสีเขียวแจ้งเตือนล็อกสมบูรณ์
+        // อัปเดตสถานะปุ่มสีเขียว ล็อกเสร็จสมบูรณ์
         actionBtn.className = "ar-btn active-locked";
         actionBtn.textContent = "ล็อกสำเร็จ! เดินสำรวจได้เลย";
       } else {
-        // ถ้าระบบล็อกอยู่แล้วผู้ใช้กดซ้ำ จะทำการรีโหลดหน้าเว็บเพื่อเริ่มต้นสแกนพิกัดใหม่สะดวกที่สุด
+        // หากต้องการยกเลิกหรือตั้งหลักสแกนใหม่ ให้สั่งรีโหลดหน้าเว็บเพื่อเคลียร์ค่าหน่วยความจำ
         window.location.reload();
       }
     }
